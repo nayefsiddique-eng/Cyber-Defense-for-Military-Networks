@@ -1,6 +1,6 @@
-# Military Network Cyber Defense Range
+# Cyber Defense for Military Networks
 
-A realistic digital twin of a multi-enclave military network designed for generating high-fidelity cyber telemetry and simulating MITRE ATT&CK scenarios.
+> A digital twin cyber range simulating multi-enclave military network topologies, generating realistic OCSF-normalized telemetry, and executing safe MITRE ATT&CK scenarios.
 
 ## Architecture
 
