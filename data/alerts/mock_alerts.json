@@ -1,0 +1,54 @@
+[
+  {
+    "event_id": "E001",
+    "timestamp": "2026-09-08T10:00:00",
+    "source_ip": "192.168.1.100",
+    "destination_ip": "10.0.1.10",
+    "user": "admin",
+    "asset_id": "WORKSTATION-01",
+    "threat_type": "Brute Force",
+    "severity": "HIGH",
+    "score": 0.91,
+    "confidence": 0.88,
+    "evidence": "Multiple failed login attempts detected"
+  },
+  {
+    "event_id": "E002",
+    "timestamp": "2026-09-08T10:05:00",
+    "source_ip": "192.168.1.100",
+    "destination_ip": "10.0.1.10",
+    "user": "admin",
+    "asset_id": "WORKSTATION-01",
+    "threat_type": "Credential Compromise",
+    "severity": "CRITICAL",
+    "score": 0.96,
+    "confidence": 0.93,
+    "evidence": "Successful login after repeated failures"
+  },
+  {
+    "event_id": "E003",
+    "timestamp": "2026-09-08T10:10:00",
+    "source_ip": "10.0.1.10",
+    "destination_ip": "10.0.2.20",
+    "user": "admin",
+    "asset_id": "SERVER-01",
+    "threat_type": "Privilege Escalation",
+    "severity": "CRITICAL",
+    "score": 0.94,
+    "confidence": 0.90,
+    "evidence": "Unauthorized administrative privilege obtained"
+  },
+  {
+    "event_id": "E004",
+    "timestamp": "2026-09-08T10:15:00",
+    "source_ip": "10.0.1.10",
+    "destination_ip": "10.0.3.30",
+    "user": "admin",
+    "asset_id": "DATABASE-01",
+    "threat_type": "Lateral Movement",
+    "severity": "CRITICAL",
+    "score": 0.97,
+    "confidence": 0.95,
+    "evidence": "Remote access to another critical asset"
+  }
+]

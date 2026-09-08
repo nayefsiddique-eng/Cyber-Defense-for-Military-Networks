@@ -1,0 +1,411 @@
+[
+    {
+        "incident_id": "INC-001",
+        "severity": "CRITICAL",
+        "affected_assets": [
+            "WORKSTATION-01",
+            "SERVER-01",
+            "DATABASE-01"
+        ],
+        "attack_chain": [
+            {
+                "stage": "Initial Access",
+                "mitre_id": "T1110",
+                "mitre_technique": "Brute Force",
+                "asset": "WORKSTATION-01"
+            },
+            {
+                "stage": "Credential Access",
+                "mitre_id": "T1078",
+                "mitre_technique": "Valid Accounts",
+                "asset": "WORKSTATION-01"
+            },
+            {
+                "stage": "Privilege Escalation",
+                "mitre_id": "T1068",
+                "mitre_technique": "Exploitation for Privilege Escalation",
+                "asset": "SERVER-01"
+            },
+            {
+                "stage": "Lateral Movement",
+                "mitre_id": "T1021",
+                "mitre_technique": "Remote Services",
+                "asset": "DATABASE-01"
+            }
+        ],
+        "current_stage": "Lateral Movement",
+        "predicted_next_stage": "Command and Control",
+        "prediction_confidence": 0.87,
+        "risk_score": 78.3,
+        "risk_level": "HIGH",
+        "risk_factors": {
+            "severity_score": 90,
+            "attack_stage_score": 75,
+            "asset_impact_score": 60,
+            "prediction_confidence_score": 87.0
+        },
+        "recommended_actions": [
+            "Isolate compromised endpoint from the network",
+            "Block suspicious remote connections",
+            "Investigate connected assets",
+            "Restrict lateral communication between segments"
+        ],
+        "blast_radius": {
+            "incident_id": "INC-001",
+            "directly_affected_assets": [
+                "WORKSTATION-01",
+                "SERVER-01",
+                "DATABASE-01"
+            ],
+            "potentially_affected_targets": [
+                "10.0.1.10",
+                "10.0.2.20",
+                "10.0.3.30"
+            ],
+            "blast_radius_size": 3,
+            "risk_level": "CRITICAL"
+        },
+        "attack_graph": {
+            "incident_id": "INC-001",
+            "nodes": [
+                {
+                    "id": "192.168.1.100",
+                    "type": "ip"
+                },
+                {
+                    "id": "10.0.1.10",
+                    "type": "ip"
+                },
+                {
+                    "id": "WORKSTATION-01",
+                    "type": "asset"
+                },
+                {
+                    "id": "10.0.2.20",
+                    "type": "ip"
+                },
+                {
+                    "id": "SERVER-01",
+                    "type": "asset"
+                },
+                {
+                    "id": "10.0.3.30",
+                    "type": "ip"
+                },
+                {
+                    "id": "DATABASE-01",
+                    "type": "asset"
+                }
+            ],
+            "edges": [
+                {
+                    "source": "192.168.1.100",
+                    "target": "10.0.1.10",
+                    "relationship": "Brute Force",
+                    "event_id": "E001"
+                },
+                {
+                    "source": "10.0.1.10",
+                    "target": "WORKSTATION-01",
+                    "relationship": "targets",
+                    "event_id": "E001"
+                },
+                {
+                    "source": "192.168.1.100",
+                    "target": "10.0.1.10",
+                    "relationship": "Credential Compromise",
+                    "event_id": "E002"
+                },
+                {
+                    "source": "10.0.1.10",
+                    "target": "WORKSTATION-01",
+                    "relationship": "targets",
+                    "event_id": "E002"
+                },
+                {
+                    "source": "10.0.1.10",
+                    "target": "10.0.2.20",
+                    "relationship": "Privilege Escalation",
+                    "event_id": "E003"
+                },
+                {
+                    "source": "10.0.2.20",
+                    "target": "SERVER-01",
+                    "relationship": "targets",
+                    "event_id": "E003"
+                },
+                {
+                    "source": "10.0.1.10",
+                    "target": "10.0.3.30",
+                    "relationship": "Lateral Movement",
+                    "event_id": "E004"
+                },
+                {
+                    "source": "10.0.3.30",
+                    "target": "DATABASE-01",
+                    "relationship": "targets",
+                    "event_id": "E004"
+                }
+            ]
+        }
+    },
+    {
+        "incident_id": "INC-001",
+        "severity": "CRITICAL",
+        "affected_assets": [
+            "ENDPOINT-01"
+        ],
+        "attack_chain": [
+            {
+                "stage": "Initial Access",
+                "mitre_id": "T1110",
+                "mitre_technique": "Brute Force",
+                "asset": "ENDPOINT-01"
+            },
+            {
+                "stage": "Credential Access",
+                "mitre_id": "T1078",
+                "mitre_technique": "Valid Accounts",
+                "asset": "ENDPOINT-01"
+            },
+            {
+                "stage": "Command and Control",
+                "mitre_id": "T1071",
+                "mitre_technique": "Application Layer Protocol",
+                "asset": "ENDPOINT-01"
+            }
+        ],
+        "current_stage": "Command and Control",
+        "predicted_next_stage": "Collection",
+        "prediction_confidence": 0.82,
+        "risk_score": 73.05,
+        "risk_level": "HIGH",
+        "risk_factors": {
+            "severity_score": 90,
+            "attack_stage_score": 85,
+            "asset_impact_score": 20,
+            "prediction_confidence_score": 82.0
+        },
+        "recommended_actions": [
+            "Block suspicious command and control destination",
+            "Terminate malicious outbound connections",
+            "Isolate the compromised host",
+            "Search for persistence mechanisms"
+        ],
+        "blast_radius": {
+            "incident_id": "INC-001",
+            "directly_affected_assets": [
+                "ENDPOINT-01"
+            ],
+            "potentially_affected_targets": [
+                "10.10.1.10",
+                "185.220.101.20"
+            ],
+            "blast_radius_size": 1,
+            "risk_level": "MEDIUM"
+        },
+        "attack_graph": {
+            "incident_id": "INC-001",
+            "nodes": [
+                {
+                    "id": "192.168.10.50",
+                    "type": "ip"
+                },
+                {
+                    "id": "10.10.1.10",
+                    "type": "ip"
+                },
+                {
+                    "id": "ENDPOINT-01",
+                    "type": "asset"
+                },
+                {
+                    "id": "185.220.101.20",
+                    "type": "ip"
+                }
+            ],
+            "edges": [
+                {
+                    "source": "192.168.10.50",
+                    "target": "10.10.1.10",
+                    "relationship": "Brute Force",
+                    "event_id": "C001"
+                },
+                {
+                    "source": "10.10.1.10",
+                    "target": "ENDPOINT-01",
+                    "relationship": "targets",
+                    "event_id": "C001"
+                },
+                {
+                    "source": "192.168.10.50",
+                    "target": "10.10.1.10",
+                    "relationship": "Credential Compromise",
+                    "event_id": "C002"
+                },
+                {
+                    "source": "10.10.1.10",
+                    "target": "ENDPOINT-01",
+                    "relationship": "targets",
+                    "event_id": "C002"
+                },
+                {
+                    "source": "10.10.1.10",
+                    "target": "185.220.101.20",
+                    "relationship": "Command and Control",
+                    "event_id": "C003"
+                },
+                {
+                    "source": "185.220.101.20",
+                    "target": "ENDPOINT-01",
+                    "relationship": "targets",
+                    "event_id": "C003"
+                }
+            ]
+        }
+    },
+    {
+        "incident_id": "INC-001",
+        "severity": "CRITICAL",
+        "affected_assets": [
+            "FILE-SERVER-01",
+            "WORKSTATION-02"
+        ],
+        "attack_chain": [
+            {
+                "stage": "Initial Access",
+                "mitre_id": "T1110",
+                "mitre_technique": "Brute Force",
+                "asset": "WORKSTATION-02"
+            },
+            {
+                "stage": "Credential Access",
+                "mitre_id": "T1078",
+                "mitre_technique": "Valid Accounts",
+                "asset": "WORKSTATION-02"
+            },
+            {
+                "stage": "Lateral Movement",
+                "mitre_id": "T1021",
+                "mitre_technique": "Remote Services",
+                "asset": "FILE-SERVER-01"
+            },
+            {
+                "stage": "Exfiltration",
+                "mitre_id": "T1041",
+                "mitre_technique": "Exfiltration Over C2 Channel",
+                "asset": "FILE-SERVER-01"
+            }
+        ],
+        "current_stage": "Exfiltration",
+        "predicted_next_stage": "Attack Objective Achieved",
+        "prediction_confidence": 0.95,
+        "risk_score": 84.25,
+        "risk_level": "HIGH",
+        "risk_factors": {
+            "severity_score": 90,
+            "attack_stage_score": 100,
+            "asset_impact_score": 40,
+            "prediction_confidence_score": 95.0
+        },
+        "recommended_actions": [
+            "Immediately block suspicious outbound data transfer",
+            "Isolate the affected asset",
+            "Preserve logs and forensic evidence",
+            "Assess potential data exposure"
+        ],
+        "blast_radius": {
+            "incident_id": "INC-001",
+            "directly_affected_assets": [
+                "FILE-SERVER-01",
+                "WORKSTATION-02"
+            ],
+            "potentially_affected_targets": [
+                "10.20.1.10",
+                "10.20.2.15",
+                "203.0.113.50"
+            ],
+            "blast_radius_size": 2,
+            "risk_level": "HIGH"
+        },
+        "attack_graph": {
+            "incident_id": "INC-001",
+            "nodes": [
+                {
+                    "id": "172.16.1.50",
+                    "type": "ip"
+                },
+                {
+                    "id": "10.20.1.10",
+                    "type": "ip"
+                },
+                {
+                    "id": "WORKSTATION-02",
+                    "type": "asset"
+                },
+                {
+                    "id": "10.20.2.15",
+                    "type": "ip"
+                },
+                {
+                    "id": "FILE-SERVER-01",
+                    "type": "asset"
+                },
+                {
+                    "id": "203.0.113.50",
+                    "type": "ip"
+                }
+            ],
+            "edges": [
+                {
+                    "source": "172.16.1.50",
+                    "target": "10.20.1.10",
+                    "relationship": "Brute Force",
+                    "event_id": "X001"
+                },
+                {
+                    "source": "10.20.1.10",
+                    "target": "WORKSTATION-02",
+                    "relationship": "targets",
+                    "event_id": "X001"
+                },
+                {
+                    "source": "172.16.1.50",
+                    "target": "10.20.1.10",
+                    "relationship": "Credential Compromise",
+                    "event_id": "X002"
+                },
+                {
+                    "source": "10.20.1.10",
+                    "target": "WORKSTATION-02",
+                    "relationship": "targets",
+                    "event_id": "X002"
+                },
+                {
+                    "source": "10.20.1.10",
+                    "target": "10.20.2.15",
+                    "relationship": "Lateral Movement",
+                    "event_id": "X003"
+                },
+                {
+                    "source": "10.20.2.15",
+                    "target": "FILE-SERVER-01",
+                    "relationship": "targets",
+                    "event_id": "X003"
+                },
+                {
+                    "source": "10.20.2.15",
+                    "target": "203.0.113.50",
+                    "relationship": "Data Exfiltration",
+                    "event_id": "X004"
+                },
+                {
+                    "source": "203.0.113.50",
+                    "target": "FILE-SERVER-01",
+                    "relationship": "targets",
+                    "event_id": "X004"
+                }
+            ]
+        }
+    }
+]

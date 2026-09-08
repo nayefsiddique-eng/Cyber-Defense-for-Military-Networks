@@ -1,0 +1,41 @@
+[
+    {
+        "event_id": "C001",
+        "timestamp": "2026-09-08T11:00:00",
+        "source_ip": "192.168.10.50",
+        "destination_ip": "10.10.1.10",
+        "user": "operator",
+        "asset_id": "ENDPOINT-01",
+        "threat_type": "Brute Force",
+        "severity": "HIGH",
+        "score": 0.89,
+        "confidence": 0.85,
+        "evidence": "Repeated authentication failures detected from external source"
+    },
+    {
+        "event_id": "C002",
+        "timestamp": "2026-09-08T11:05:00",
+        "source_ip": "192.168.10.50",
+        "destination_ip": "10.10.1.10",
+        "user": "operator",
+        "asset_id": "ENDPOINT-01",
+        "threat_type": "Credential Compromise",
+        "severity": "CRITICAL",
+        "score": 0.95,
+        "confidence": 0.92,
+        "evidence": "Successful login detected after multiple failed attempts"
+    },
+    {
+        "event_id": "C003",
+        "timestamp": "2026-09-08T11:12:00",
+        "source_ip": "10.10.1.10",
+        "destination_ip": "185.220.101.20",
+        "user": "operator",
+        "asset_id": "ENDPOINT-01",
+        "threat_type": "Command and Control",
+        "severity": "CRITICAL",
+        "score": 0.98,
+        "confidence": 0.96,
+        "evidence": "Persistent outbound communication with suspicious external infrastructure"
+    }
+]

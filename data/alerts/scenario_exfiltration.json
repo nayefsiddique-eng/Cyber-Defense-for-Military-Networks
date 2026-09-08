@@ -1,0 +1,54 @@
+[
+    {
+        "event_id": "X001",
+        "timestamp": "2026-09-08T12:00:00",
+        "source_ip": "172.16.1.50",
+        "destination_ip": "10.20.1.10",
+        "user": "research_user",
+        "asset_id": "WORKSTATION-02",
+        "threat_type": "Brute Force",
+        "severity": "HIGH",
+        "score": 0.90,
+        "confidence": 0.87,
+        "evidence": "Multiple failed login attempts against sensitive workstation"
+    },
+    {
+        "event_id": "X002",
+        "timestamp": "2026-09-08T12:04:00",
+        "source_ip": "172.16.1.50",
+        "destination_ip": "10.20.1.10",
+        "user": "research_user",
+        "asset_id": "WORKSTATION-02",
+        "threat_type": "Credential Compromise",
+        "severity": "CRITICAL",
+        "score": 0.97,
+        "confidence": 0.94,
+        "evidence": "Unauthorized successful authentication detected"
+    },
+    {
+        "event_id": "X003",
+        "timestamp": "2026-09-08T12:10:00",
+        "source_ip": "10.20.1.10",
+        "destination_ip": "10.20.2.15",
+        "user": "research_user",
+        "asset_id": "FILE-SERVER-01",
+        "threat_type": "Lateral Movement",
+        "severity": "CRITICAL",
+        "score": 0.96,
+        "confidence": 0.93,
+        "evidence": "Remote service connection to protected file server"
+    },
+    {
+        "event_id": "X004",
+        "timestamp": "2026-09-08T12:18:00",
+        "source_ip": "10.20.2.15",
+        "destination_ip": "203.0.113.50",
+        "user": "research_user",
+        "asset_id": "FILE-SERVER-01",
+        "threat_type": "Data Exfiltration",
+        "severity": "CRITICAL",
+        "score": 0.99,
+        "confidence": 0.97,
+        "evidence": "Large volume of sensitive data transferred to external destination"
+    }
+]
