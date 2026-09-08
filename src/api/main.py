@@ -1,5 +1,5 @@
 """FastAPI Control Plane for Cyber Defense Range."""
-
+from src.api.dashboard import router as dashboard_router
 import asyncio
 from typing import Dict, Any, List
 from datetime import datetime, timezone
@@ -22,14 +22,18 @@ from src.pipeline.normalizer import TelemetryNormalizer
 from src.pipeline.store import StorageSink
 
 app = FastAPI(
+    
     title="Military Cyber Defense Telemetry Engine",
     version="1.0.0",
     description="Control plane for the digital twin cyber range and streaming pipeline."
 )
-
+app.include_router(dashboard_router)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

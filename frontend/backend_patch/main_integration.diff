@@ -1,0 +1,12 @@
+--- a/src/api/main.py
++++ b/src/api/main.py
+@@
+ from src.pipeline.store import StorageSink
++from src.api.dashboard import router as dashboard_router
+@@
+ app = FastAPI(
+@@
+ )
++
++app.include_router(dashboard_router)
+*** End Patch
