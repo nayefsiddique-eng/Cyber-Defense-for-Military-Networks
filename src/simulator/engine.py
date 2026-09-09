@@ -1,12 +1,23 @@
+import asyncio
 import hashlib
-import random
 import heapq
 import itertools
-import asyncio
-from typing import Tuple, Any, Dict, List, Optional
+import logging
+import os
+import random
+from typing import Any, Dict, List, Optional, Tuple
+
 from src.models.inventory import AssetInventory
+from src.pipeline.schema import RawEvent
+from src.pipeline.topic_manager import TOPIC_REGISTRY
+
+logger = logging.getLogger(__name__)
+
 
 class DeterministicPRNGManager:
+    """Per-stream RNGs derived from one master seed, so streams stay independent
+    and reproducible regardless of execution order."""
+
     def __init__(self, master_seed: int):
         self.master_seed = master_seed
         self.rngs: Dict[str, random.Random] = {}
@@ -18,15 +29,14 @@ class DeterministicPRNGManager:
             self.rngs[stream_name] = random.Random(sub_seed)
         return self.rngs[stream_name]
 
+
 class DeterministicEventQueue:
     def __init__(self):
         self._queue = []
         self._counter = itertools.count()
 
     def push(self, timestamp: float, priority: int, event_type: str, payload: Any):
-        count = next(self._counter)
-        event = (timestamp, priority, count, event_type, payload)
-        heapq.heappush(self._queue, event)
+        heapq.heappush(self._queue, (timestamp, priority, next(self._counter), event_type, payload))
 
     def pop(self) -> Tuple[float, int, int, str, Any]:
         return heapq.heappop(self._queue)
@@ -40,70 +50,75 @@ class DeterministicEventQueue:
     def size(self) -> int:
         return len(self._queue)
 
+
 class CyberRangeSimulator:
-    def __init__(self, config: Any, event_bus: Any = None):
+    def __init__(self, config: Any, event_bus: Any = None, seed: Optional[int] = None):
         self.config = config
         self.event_bus = event_bus
-        master_seed = getattr(config, 'seed', 42)
-        self.prng_manager = DeterministicPRNGManager(master_seed)
+        self.seed = seed if seed is not None else config.MASTER_SEED
+        self.prng_manager = DeterministicPRNGManager(self.seed)
         self.event_queue = DeterministicEventQueue()
-        self.inventory = AssetInventory()
-        self.telemetry_generators: List[Any] = []
+
+        os.makedirs(os.path.dirname(config.SQLITE_DB_PATH) or '.', exist_ok=True)
+        self.inventory = AssetInventory(config.SQLITE_DB_PATH)
+
+        self.telemetry_generators: Dict[str, Any] = {}
         self.pcap_engine = None
         self.sim_time = 0.0
         self.running = False
         self.stats = {
             "events_generated": 0,
             "events_by_type": {},
-            "attacks_executed": 0
+            "events_published": 0,
+            "attacks_executed": 0,
         }
 
-    async def start(self, duration_seconds: float = 3600.0):
+    async def start(self, duration_seconds: float = 3600.0, attack_scenarios: Optional[List[str]] = None):
         self.running = True
-        
-        # 1. Build topology
+
         from src.simulator.topology import MilitaryTopologyBuilder
-        builder = MilitaryTopologyBuilder()
-        builder.build(self.inventory)
-        
-        # 2. Schedule normal traffic
+        MilitaryTopologyBuilder().build(self.inventory)
+
         from src.simulator.normal_traffic import NormalTrafficGenerator
-        traffic_gen = NormalTrafficGenerator(self.inventory, self.prng_manager)
-        traffic_gen.schedule_events(self.event_queue, self.sim_time, duration_seconds)
-        
-        # 3. Schedule attack scenarios
-        # Attack scheduling placeholder
-        
-        # 4. Run discrete-event loop
+        NormalTrafficGenerator(self.inventory, self.prng_manager).schedule_events(
+            self.event_queue, self.sim_time, duration_seconds
+        )
+
+        processed = 0
         while self.running and not self.event_queue.is_empty():
-            event = self.event_queue.pop()
-            timestamp, priority, count, event_type, payload = event
-            
+            timestamp, _priority, _count, event_type, payload = self.event_queue.pop()
             if timestamp > duration_seconds:
                 break
-                
+
             self.sim_time = timestamp
-            
-            self._dispatch_event(event_type, payload)
-            
-            # Emit telemetry
-            if self.event_bus:
-                asyncio.create_task(self.event_bus.publish(event_type, payload))
-                
-            # Yield control occasionally
-            if count % 1000 == 0:
+            self.stats["events_generated"] += 1
+            self.stats["events_by_type"][event_type] = self.stats["events_by_type"].get(event_type, 0) + 1
+
+            if self.event_bus is not None and isinstance(payload, RawEvent):
+                await self._publish(payload)
+
+            processed += 1
+            if processed % 500 == 0:
                 await asyncio.sleep(0)
-                
+
         self.running = False
+        logger.info("Simulation finished: %s", self.stats)
 
     async def stop(self):
         self.running = False
 
-    def _dispatch_event(self, event_type: str, payload: Any):
-        self.stats["events_generated"] += 1
-        self.stats["events_by_type"][event_type] = self.stats["events_by_type"].get(event_type, 0) + 1
-        if "ATTACK" in event_type:
-            self.stats["attacks_executed"] += 1
+    async def _publish(self, event: RawEvent) -> None:
+        payload = event.to_payload()
+        await self.event_bus.publish(event.topic, self._partition_key(event.topic, payload), payload)
+        self.stats["events_published"] += 1
+
+    @staticmethod
+    def _partition_key(topic: str, payload: Dict[str, Any]) -> Optional[str]:
+        definition = TOPIC_REGISTRY.get(topic)
+        if definition is None or not definition.partition_key_field:
+            return None
+        value = payload.get(definition.partition_key_field)
+        return str(value) if value is not None else None
 
     def get_stats(self) -> Dict[str, Any]:
         return self.stats

@@ -1,0 +1,8 @@
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+pytest==8.3.2
+pytest-asyncio==0.23.8
+pytest-cov==5.0.0
+
+# Dev-only: SHAP pulls numba/llvmlite and is slow at inference.
+# src/detection/explain.py guards the import and degrades gracefully.
+shap==0.52.0

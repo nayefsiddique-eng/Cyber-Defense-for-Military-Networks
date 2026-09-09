@@ -6,6 +6,17 @@ pydantic-settings==2.3.4
 scapy==2.5.0
 aiofiles==24.1.0
 
+# --- Detection engine (src/detection/) ---
+# Versions chosen for cp313 wheel availability; also support the 3.11 image.
+numpy==2.2.6
+scikit-learn==1.6.1
+xgboost==2.1.4
+joblib==1.6.0
+
+# --- Dataset assembly + metrics harness (scripts/) ---
+pandas==2.3.3
+pyarrow==18.1.0
+
 # Only required for "full" mode
 confluent-kafka==2.4.0
 opensearch-py==2.6.0

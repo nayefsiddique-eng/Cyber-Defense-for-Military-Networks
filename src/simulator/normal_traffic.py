@@ -1,98 +1,132 @@
-from typing import List, Optional
+import itertools
+
 from src.models.inventory import AssetInventory
-from src.simulator.engine import DeterministicPRNGManager, DeterministicEventQueue
+from src.pipeline.schema import RawEvent, RawEventData
+from src.simulator.engine import DeterministicEventQueue, DeterministicPRNGManager
+
+DOMAIN = "MIL"
+BROWSE_DOMAINS = ["google.com", "microsoft.com", "mil.gov", "internal.local"]
+
 
 class NormalTrafficGenerator:
+    """Schedules benign background traffic across the topology."""
+
     def __init__(self, inventory: AssetInventory, prng: DeterministicPRNGManager):
         self.inventory = inventory
         self.prng = prng
         self.rng = prng.get_sub_rng("normal_traffic")
+        self._ids = itertools.count(1)
+
+    def _event(self, timestamp: float, event_type: str, **fields) -> RawEvent:
+        return RawEvent(
+            event_id=f"N{next(self._ids):08d}",
+            timestamp=timestamp,
+            event_type=event_type,
+            data=RawEventData(**fields),
+        )
+
+    @staticmethod
+    def _user_for(asset) -> str:
+        return f"user{asset.hostname[-2:].lower()}"
 
     def schedule_events(self, event_queue: DeterministicEventQueue, start_time: float, duration: float) -> None:
         end_time = start_time + duration
-        
-        assets = self.inventory.get_all_assets()
+
+        def push(timestamp: float, priority: int, event_type: str, **fields):
+            if start_time <= timestamp < end_time:
+                event_queue.push(timestamp, priority, event_type, self._event(timestamp, event_type, **fields))
+
+        def every(interval: float, first_offset: float, priority: int, event_type: str, builder):
+            t = start_time + min(first_offset, max(duration - 1.0, 0.0))
+            while t < end_time:
+                push(t, priority, event_type, **builder())
+                t += interval
+
+        assets = self.inventory.get_all()
         workstations = [a for a in assets if a.hostname.startswith("WS")]
         dcs = [a for a in assets if a.hostname.startswith("DC")]
-        fs01 = next((a for a in assets if a.hostname == "FS01"), None)
-        tgw01 = next((a for a in assets if a.hostname == "TGW01"), None)
         radios = [a for a in assets if a.hostname.startswith("RADIO")]
         sensors = [a for a in assets if a.hostname.startswith("SENSOR")]
         c2ws = [a for a in assets if a.hostname.startswith("C2WS")]
-        cdb01 = next((a for a in assets if a.hostname == "CDB01"), None)
-
+        by_name = {a.hostname: a for a in assets}
+        fs01, tgw01, cdb01 = by_name.get("FS01"), by_name.get("TGW01"), by_name.get("CDB01")
         dc01 = dcs[0] if dcs else None
         dc02 = dcs[1] if len(dcs) > 1 else None
+        dc_ip = dc01.ip if dc01 else "10.10.1.10"
 
-        # 1. Workstation logins
+        # Logins/logouts are scheduled as fractions of the run so they fire at
+        # any duration. The original absolute 27000-30600s offsets meant zero
+        # login events at the default 3600s duration.
         for ws in workstations:
-            # Random time between 07:30 (27000s) and 08:30 (30600s) for login
-            login_time = start_time + self.rng.uniform(27000, 30600)
-            if login_time < end_time:
-                event_queue.push(login_time, 5, "NORMAL_AUTH", {"src": ws.ip_address, "dst": dc01.ip_address if dc01 else "10.10.1.10", "action": "login"})
-                
-            # Random time between 16:30 (59400s) and 17:30 (63000s) for logout
-            logout_time = start_time + self.rng.uniform(59400, 63000)
-            if logout_time < end_time:
-                event_queue.push(logout_time, 5, "NORMAL_AUTH", {"src": ws.ip_address, "dst": dc01.ip_address if dc01 else "10.10.1.10", "action": "logout"})
+            user = self._user_for(ws)
+            push(start_time + duration * self.rng.uniform(0.02, 0.12), 5, "raw.auth",
+                 src_ip=ws.ip, dst_ip=dc_ip, username=user, user_id=user, domain=DOMAIN,
+                 status="success", logon_type="2", event_code=4624,
+                 hostname=ws.hostname, host_id=ws.asset_id, action="login")
+            push(start_time + duration * self.rng.uniform(0.75, 0.95), 5, "raw.auth",
+                 src_ip=ws.ip, dst_ip=dc_ip, username=user, user_id=user, domain=DOMAIN,
+                 status="success", logon_type="2", event_code=4634,
+                 hostname=ws.hostname, host_id=ws.asset_id, action="logout")
 
-        # 2. Kerberos TGT renewals: Every 10 hours from domain-joined hosts
-        domain_hosts = workstations + dcs
-        for host in domain_hosts:
-            t = start_time + self.rng.uniform(0, 36000)
-            while t < end_time:
-                event_queue.push(t, 5, "NORMAL_AUTH", {"src": host.ip_address, "dst": dc01.ip_address if dc01 else "10.10.1.10", "action": "tgt_renewal"})
-                t += 36000
+        for host in workstations + dcs:
+            user = self._user_for(host)
+            every(36000, self.rng.uniform(0, 3600), 5, "raw.auth", lambda h=host, u=user: dict(
+                src_ip=h.ip, dst_ip=dc_ip, username=u, user_id=u, domain=DOMAIN, status="success",
+                logon_type="3", event_code=4768, hostname=h.hostname, host_id=h.asset_id,
+                action="tgt_renewal", protocol="tcp", dst_port=88))
 
-        # 3. DNS lookups, 4. File share access, 5. HTTP/HTTPS browsing
         for ws in workstations:
-            t = start_time + self.rng.uniform(0, 600)
+            t = start_time + self.rng.uniform(0, 60)
             while t < end_time:
-                event_queue.push(t, 4, "NORMAL_DNS", {"src": ws.ip_address, "dst": dc01.ip_address if dc01 else "10.10.1.10", "query": self.rng.choice(["google.com", "microsoft.com", "mil.gov", "internal.local"])})
-                
+                push(t, 4, "raw.dns", src_ip=ws.ip, src_port=self.rng.randint(49152, 65535),
+                     dst_ip=dc_ip, dst_port=53, protocol="udp",
+                     query_name=self.rng.choice(BROWSE_DOMAINS), query_type="A",
+                     response_code="NOERROR", hostname=ws.hostname)
                 if fs01:
-                    event_queue.push(t + self.rng.uniform(1, 10), 4, "NORMAL_SMB", {"src": ws.ip_address, "dst": fs01.ip_address, "action": "read_file"})
-                
-                event_queue.push(t + self.rng.uniform(11, 20), 4, "NORMAL_HTTP", {"src": ws.ip_address, "dst": "8.8.8.8", "url": "https://mil.gov"})
-                
-                t += self.rng.uniform(300, 1800)
+                    push(t + self.rng.uniform(1, 10), 4, "raw.netflow",
+                         src_ip=ws.ip, src_port=self.rng.randint(49152, 65535),
+                         dst_ip=fs01.ip, dst_port=445, protocol="tcp", action="allow",
+                         bytes_out=self.rng.randint(2000, 40000), bytes_in=self.rng.randint(500, 5000),
+                         packets_out=self.rng.randint(5, 60), packets_in=self.rng.randint(5, 40),
+                         hostname=ws.hostname)
+                push(t + self.rng.uniform(11, 20), 4, "raw.netflow",
+                     src_ip=ws.ip, src_port=self.rng.randint(49152, 65535),
+                     dst_ip="8.8.8.8", dst_port=443, protocol="tcp", action="allow",
+                     bytes_out=self.rng.randint(1000, 20000), bytes_in=self.rng.randint(5000, 90000),
+                     packets_out=self.rng.randint(5, 50), packets_in=self.rng.randint(10, 120),
+                     hostname=ws.hostname)
+                t += self.rng.uniform(60, 300)
 
-        # 6. NTP sync
         if dc01:
             for host in assets:
-                if host == dc01:
+                if host.hostname == dc01.hostname:
                     continue
-                t = start_time + self.rng.uniform(0, 1024)
-                while t < end_time:
-                    event_queue.push(t, 3, "NORMAL_NTP", {"src": host.ip_address, "dst": dc01.ip_address})
-                    t += 1024
+                every(1024, self.rng.uniform(0, 1024), 3, "raw.netflow", lambda h=host: dict(
+                    src_ip=h.ip, dst_ip=dc_ip, dst_port=123, protocol="udp", action="allow",
+                    bytes_out=76, bytes_in=76, packets_out=1, packets_in=1, hostname=h.hostname))
 
-        # 7. AD replication
         if dc01 and dc02:
-            t = start_time
-            while t < end_time:
-                event_queue.push(t, 2, "NORMAL_AD_SYNC", {"src": dc01.ip_address, "dst": dc02.ip_address})
-                t += 900 # 15 minutes
+            every(900, 0, 2, "raw.netflow", lambda: dict(
+                src_ip=dc01.ip, dst_ip=dc02.ip, dst_port=389, protocol="tcp", action="allow",
+                bytes_out=self.rng.randint(10000, 80000), bytes_in=self.rng.randint(10000, 80000),
+                hostname=dc01.hostname))
 
-        # 8. Syslog forwarding
         if tgw01:
             for host in assets:
-                t = start_time + self.rng.uniform(0, 60)
-                while t < end_time:
-                    event_queue.push(t, 3, "NORMAL_SYSLOG", {"src": host.ip_address, "dst": tgw01.ip_address})
-                    t += 300
+                every(300, self.rng.uniform(0, 60), 3, "raw.netflow", lambda h=host: dict(
+                    src_ip=h.ip, dst_ip=tgw01.ip, dst_port=514, protocol="udp", action="allow",
+                    bytes_out=self.rng.randint(200, 2000), packets_out=self.rng.randint(1, 5),
+                    hostname=h.hostname))
 
-        # 9. Tactical heartbeats
         for node in radios + sensors:
-            t = start_time + self.rng.uniform(0, 30)
-            while t < end_time:
-                event_queue.push(t, 2, "NORMAL_HEARTBEAT", {"src": node.ip_address, "dst": "10.20.10.1"}) # TGW01
-                t += 30
+            every(30, self.rng.uniform(0, 30), 2, "raw.netflow", lambda n=node: dict(
+                src_ip=n.ip, dst_ip=tgw01.ip if tgw01 else "10.20.10.1", dst_port=4789,
+                protocol="udp", action="allow", bytes_out=128, packets_out=1, hostname=n.hostname))
 
-        # 10. Database queries
         if cdb01:
             for ws in c2ws:
-                t = start_time + self.rng.uniform(0, 120)
-                while t < end_time:
-                    event_queue.push(t, 4, "NORMAL_DB_QUERY", {"src": ws.ip_address, "dst": cdb01.ip_address, "query": "SELECT * FROM ops_data"})
-                    t += self.rng.uniform(60, 600)
+                every(self.rng.uniform(60, 600), self.rng.uniform(0, 120), 4, "raw.netflow", lambda w=ws: dict(
+                    src_ip=w.ip, src_port=self.rng.randint(49152, 65535), dst_ip=cdb01.ip,
+                    dst_port=1433, protocol="tcp", action="allow",
+                    bytes_out=self.rng.randint(500, 4000), bytes_in=self.rng.randint(2000, 60000),
+                    hostname=w.hostname))

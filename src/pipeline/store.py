@@ -201,6 +201,7 @@ class StorageSink:
         self._buffers: Dict[str, List[dict]] = {}
         self._is_running = False
         self._flush_task: Optional[asyncio.Task] = None
+        self._stop_event = asyncio.Event()
         
         self.stats = {
             'events_stored': 0,
@@ -228,24 +229,24 @@ class StorageSink:
 
     async def stop(self) -> None:
         self._is_running = False
+        self._stop_event.set()
+        # Awaited rather than cancelled: cancelling mid-write left an empty file
+        # and dropped the whole in-flight batch.
         if self._flush_task:
-            self._flush_task.cancel()
+            await self._flush_task
         await self._flush_all_buffers()
         await self.store.stop()
         logger.info("StorageSink stopped.")
 
     async def _on_event(self, topic: str, key: Optional[str], value: dict) -> None:
+        ready = None
         async with self._lock:
-            if topic not in self._buffers:
-                self._buffers[topic] = []
-            self._buffers[topic].append(value)
-            
+            self._buffers.setdefault(topic, []).append(value)
             if len(self._buffers[topic]) >= self.batch_size:
-                events_to_flush = self._buffers[topic]
+                ready = self._buffers[topic]
                 self._buffers[topic] = []
-                # Don't await inside lock if possible, but safe here for simple operations
-                # We'll schedule it
-                asyncio.create_task(self._flush_batch(topic, events_to_flush))
+        if ready:
+            await self._flush_batch(topic, ready)
 
     async def _flush_batch(self, topic: str, events: List[dict]) -> None:
         if not events: return
@@ -259,16 +260,22 @@ class StorageSink:
 
     async def _periodic_flush(self) -> None:
         while self._is_running:
-            await asyncio.sleep(self.flush_interval)
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=self.flush_interval)
+                return
+            except asyncio.TimeoutError:
+                pass
             await self._flush_all_buffers()
 
     async def _flush_all_buffers(self) -> None:
         async with self._lock:
-            for topic, events in list(self._buffers.items()):
-                if events:
-                    events_copy = list(events)
-                    self._buffers[topic] = []
-                    asyncio.create_task(self._flush_batch(topic, events_copy))
+            pending = [(t, list(e)) for t, e in self._buffers.items() if e]
+            for topic, _ in pending:
+                self._buffers[topic] = []
+        # Awaited, not fire-and-forget: stop() must not return before the last
+        # batch is on disk.
+        for topic, events in pending:
+            await self._flush_batch(topic, events)
 
 
 def create_store(mode: str = 'lightweight', **kwargs) -> TelemetryStore:

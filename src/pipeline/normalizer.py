@@ -1,62 +1,167 @@
-import logging
-from typing import Dict, Any, Optional
-from pydantic import BaseModel, ValidationError, Field
+"""Raw telemetry -> OCSF.
 
+Routing is table-driven: adding a source means adding one Route, not editing
+an if/elif chain. Builders keep every field the detection engine needs -
+src/dst endpoints, event_id, event_code, logon_type and integrity_level were
+all previously discarded here.
+"""
+
+import logging
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from pydantic import ValidationError
+
+from src.models.ocsf_schemas import (
+    SIM_EPOCH,
+    Actor,
+    Endpoint,
+    OCSFAuthenticationEvent,
+    OCSFBaseEvent,
+    OCSFDNSEvent,
+    OCSFFindingEvent,
+    OCSFNetworkEvent,
+    OCSFProcessEvent,
+    ProcessInfo,
+    severity_to_ocsf,
+)
 from src.pipeline.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
 
-# --- Minimal OCSF Mock Models ---
-class BaseOCSF(BaseModel):
-    class_name: str
-    class_uid: int
-    category_name: str
-    category_uid: int
-    severity_id: int = 1
-    time: float
+DLQ_VALIDATION = 'telemetry.dlq.validation_errors'
+DLQ_PARSING = 'telemetry.dlq.parsing_failures'
 
-class OCSFAuthentication(BaseOCSF):
-    class_name: str = "Authentication"
-    class_uid: int = 3002
-    category_name: str = "Identity & Access Management"
-    category_uid: int = 3
-    user: Dict[str, Any]
-    status_id: int
+# Windows event codes that indicate a failed or privileged logon.
+FAILED_LOGON_CODES = {4625, 4771}
+PRIVILEGED_LOGON_CODES = {4672}
 
-class OCSFNetworkActivity(BaseOCSF):
-    class_name: str = "Network Activity"
-    class_uid: int = 4001
-    category_name: str = "Network Activity"
-    category_uid: int = 4
-    src_endpoint: Dict[str, Any]
-    dst_endpoint: Dict[str, Any]
-    connection_info: Dict[str, Any]
 
-class OCSFDnsActivity(BaseOCSF):
-    class_name: str = "DNS Activity"
-    class_uid: int = 4003
-    category_name: str = "Network Activity"
-    category_uid: int = 4
-    query: Dict[str, Any]
-    src_endpoint: Dict[str, Any]
+def _base_fields(raw: dict) -> Dict[str, Any]:
+    sim_time = float(raw.get('timestamp') or 0.0)
+    return {
+        'event_id': raw.get('event_id'),
+        'sim_time': sim_time,
+        'time': SIM_EPOCH + timedelta(seconds=sim_time),
+        'asset_id': raw.get('asset_id') or raw.get('host_id'),
+        'event_code': raw.get('event_code'),
+        'severity_id': severity_to_ocsf(raw.get('severity')),
+    }
 
-class OCSFSecurityFinding(BaseOCSF):
-    class_name: str = "Security Finding"
-    class_uid: int = 2001
-    category_name: str = "Findings"
-    category_uid: int = 2
-    finding_info: Dict[str, Any]
-    src_endpoint: Optional[Dict[str, Any]] = None
 
-class OCSFProcessActivity(BaseOCSF):
-    class_name: str = "Process Activity"
-    class_uid: int = 1007
-    category_name: str = "System Activity"
-    category_uid: int = 1
-    device: Dict[str, Any]
-    process: Dict[str, Any]
+def _src(raw: dict) -> Endpoint:
+    return Endpoint(ip=raw.get('src_ip'), port=raw.get('src_port'), hostname=raw.get('hostname'))
 
-# --- Normalizer ---
+
+def _dst(raw: dict) -> Endpoint:
+    return Endpoint(ip=raw.get('dst_ip'), port=raw.get('dst_port'))
+
+
+def _actor(raw: dict) -> Actor:
+    return Actor(user_name=raw.get('username'), user_id=raw.get('user_id'), domain=raw.get('domain'))
+
+
+def build_auth(raw: dict) -> OCSFAuthenticationEvent:
+    code = raw.get('event_code')
+    status = raw.get('status')
+    if status is None and code is not None:
+        status = 'failure' if code in FAILED_LOGON_CODES else 'success'
+    return OCSFAuthenticationEvent(
+        **_base_fields(raw),
+        actor=_actor(raw),
+        src_endpoint=_src(raw),
+        dst_endpoint=_dst(raw),
+        status=status,
+        status_id=1 if status == 'success' else 2,
+        logon_type=raw.get('logon_type'),
+        auth_protocol=raw.get('protocol'),
+        activity_id=2 if status != 'success' else 1,
+        message=raw.get('action'),
+    )
+
+
+def build_dns(raw: dict) -> OCSFDNSEvent:
+    return OCSFDNSEvent(
+        **_base_fields(raw),
+        src_endpoint=_src(raw),
+        dst_endpoint=_dst(raw),
+        query_hostname=raw.get('query_name'),
+        query_type=raw.get('query_type'),
+        response_code=raw.get('response_code'),
+    )
+
+
+def build_network(raw: dict) -> OCSFNetworkEvent:
+    return OCSFNetworkEvent(
+        **_base_fields(raw),
+        src_endpoint=_src(raw),
+        dst_endpoint=_dst(raw),
+        protocol_name=raw.get('protocol'),
+        bytes_in=raw.get('bytes_in') or 0,
+        bytes_out=raw.get('bytes_out') or 0,
+        packets_in=raw.get('packets_in') or 0,
+        packets_out=raw.get('packets_out') or 0,
+        action=raw.get('action'),
+    )
+
+
+def build_finding(raw: dict) -> OCSFFindingEvent:
+    return OCSFFindingEvent(
+        **_base_fields(raw),
+        finding_title=raw.get('signature'),
+        analytic_technique=raw.get('mitre_technique_id'),
+        src_endpoint=_src(raw),
+        dst_endpoint=_dst(raw),
+        signature_id=str(raw['signature_id']) if raw.get('signature_id') is not None else None,
+        message=raw.get('description'),
+    )
+
+
+def build_process(raw: dict) -> OCSFProcessEvent:
+    return OCSFProcessEvent(
+        **_base_fields(raw),
+        process=ProcessInfo(
+            pid=raw.get('pid'),
+            name=raw.get('process_name'),
+            path=raw.get('process_path'),
+            cmd_line=raw.get('command_line'),
+            parent_pid=raw.get('parent_pid'),
+            parent_name=raw.get('parent_process_name'),
+            integrity_level=raw.get('integrity_level'),
+        ),
+        actor=_actor(raw),
+        device=Endpoint(ip=raw.get('src_ip'), hostname=raw.get('hostname')),
+        action=raw.get('action'),
+    )
+
+
+@dataclass(frozen=True)
+class Route:
+    source_topic: str
+    dest_topic: str
+    build: Callable[[dict], OCSFBaseEvent]
+    key_of: Callable[[OCSFBaseEvent], Optional[str]]
+
+
+def _src_ip_key(event: Any) -> Optional[str]:
+    return event.src_endpoint.ip
+
+
+ROUTES: Tuple[Route, ...] = (
+    Route('telemetry.raw.auth', 'telemetry.normalized.ocsf.auth', build_auth,
+          lambda e: e.actor.user_id or e.actor.user_name),
+    Route('telemetry.raw.dns', 'telemetry.normalized.ocsf.dns', build_dns, _src_ip_key),
+    Route('telemetry.raw.firewall', 'telemetry.normalized.ocsf.network', build_network, _src_ip_key),
+    Route('telemetry.raw.netflow', 'telemetry.normalized.ocsf.network', build_network, _src_ip_key),
+    Route('telemetry.raw.ids', 'telemetry.normalized.ocsf.security_finding', build_finding, _src_ip_key),
+    Route('telemetry.raw.endpoint', 'telemetry.normalized.ocsf.process', build_process,
+          lambda e: e.device.hostname),
+)
+
+ROUTES_BY_TOPIC: Dict[str, Route] = {r.source_topic: r for r in ROUTES}
+
+
 class TelemetryNormalizer:
     """Transforms raw telemetry events into OCSF-validated events."""
 
@@ -65,106 +170,45 @@ class TelemetryNormalizer:
         self.stats = {
             'events_normalized': 0,
             'events_failed': 0,
-            'by_topic': {}
+            'events_unroutable': 0,
+            'by_topic': {},
         }
-        self.source_topics = [
-            'telemetry.raw.auth',
-            'telemetry.raw.dns',
-            'telemetry.raw.firewall',
-            'telemetry.raw.netflow',
-            'telemetry.raw.ids',
-            'telemetry.raw.endpoint'
-        ]
+
+    @property
+    def source_topics(self) -> List[str]:
+        return list(ROUTES_BY_TOPIC)
 
     async def start(self) -> None:
-        """Subscribes to all telemetry.raw.* topics."""
         await self.bus.subscribe(self.source_topics, group_id='normalizer_group', callback=self._process_event)
-        logger.info("TelemetryNormalizer started and subscribed to raw topics.")
+        logger.info("TelemetryNormalizer subscribed to %d raw topics.", len(self.source_topics))
 
     async def stop(self) -> None:
-        """Stop the normalizer (usually handled by stopping the bus)."""
         logger.info("TelemetryNormalizer stopped.")
 
     async def _process_event(self, topic: str, key: Optional[str], value: dict) -> None:
-        """Routes to appropriate normalizer based on source topic."""
+        route = ROUTES_BY_TOPIC.get(topic)
+        if route is None:
+            # Previously an unmatched topic still counted as normalized.
+            self.stats['events_unroutable'] += 1
+            logger.warning("No route for topic %s", topic)
+            return
+
         try:
-            if topic == 'telemetry.raw.auth':
-                await self._normalize_auth(value)
-            elif topic == 'telemetry.raw.dns':
-                await self._normalize_dns(value)
-            elif topic == 'telemetry.raw.firewall':
-                await self._normalize_firewall(value)
-            elif topic == 'telemetry.raw.netflow':
-                await self._normalize_netflow(value)
-            elif topic == 'telemetry.raw.ids':
-                await self._normalize_ids(value)
-            elif topic == 'telemetry.raw.endpoint':
-                await self._normalize_endpoint(value)
-            
-            self.stats['events_normalized'] += 1
-            self.stats['by_topic'][topic] = self.stats['by_topic'].get(topic, 0) + 1
-            
+            event = route.build(value)
+            await self.bus.publish(route.dest_topic, route.key_of(event), event.model_dump(mode='json'))
         except ValidationError as ve:
             self.stats['events_failed'] += 1
-            await self.bus.publish('telemetry.dlq.validation_errors', key, {
-                'error': str(ve),
-                'original_event': value,
-                'source_topic': topic
+            await self.bus.publish(DLQ_VALIDATION, key, {
+                'error': str(ve), 'original_event': value, 'source_topic': topic,
             })
+            return
         except Exception as e:
             self.stats['events_failed'] += 1
-            await self.bus.publish('telemetry.dlq.parsing_failures', key, {
-                'error': str(e),
-                'original_event': value,
-                'source_topic': topic
+            logger.exception("Normalization failed for %s", topic)
+            await self.bus.publish(DLQ_PARSING, key, {
+                'error': str(e), 'original_event': value, 'source_topic': topic,
             })
+            return
 
-    async def _normalize_auth(self, raw: dict) -> None:
-        model = OCSFAuthentication(
-            time=raw.get('timestamp', 0.0),
-            user={'uid': raw.get('user_id'), 'name': raw.get('username')},
-            status_id=1 if raw.get('status') == 'success' else 2
-        )
-        await self.bus.publish('telemetry.normalized.ocsf.auth', str(model.user.get('uid')), model.model_dump())
-
-    async def _normalize_dns(self, raw: dict) -> None:
-        model = OCSFDnsActivity(
-            time=raw.get('timestamp', 0.0),
-            query={'hostname': raw.get('query_name'), 'type': raw.get('query_type')},
-            src_endpoint={'ip': raw.get('src_ip')}
-        )
-        await self.bus.publish('telemetry.normalized.ocsf.dns', model.src_endpoint.get('ip'), model.model_dump())
-
-    async def _normalize_firewall(self, raw: dict) -> None:
-        model = OCSFNetworkActivity(
-            time=raw.get('timestamp', 0.0),
-            src_endpoint={'ip': raw.get('src_ip'), 'port': raw.get('src_port')},
-            dst_endpoint={'ip': raw.get('dst_ip'), 'port': raw.get('dst_port')},
-            connection_info={'protocol': raw.get('protocol'), 'action': raw.get('action')}
-        )
-        await self.bus.publish('telemetry.normalized.ocsf.network', model.src_endpoint.get('ip'), model.model_dump())
-
-    async def _normalize_netflow(self, raw: dict) -> None:
-        model = OCSFNetworkActivity(
-            time=raw.get('timestamp', 0.0),
-            src_endpoint={'ip': raw.get('src_ip')},
-            dst_endpoint={'ip': raw.get('dst_ip')},
-            connection_info={'bytes': raw.get('bytes'), 'packets': raw.get('packets')}
-        )
-        await self.bus.publish('telemetry.normalized.ocsf.network', model.src_endpoint.get('ip'), model.model_dump())
-
-    async def _normalize_ids(self, raw: dict) -> None:
-        model = OCSFSecurityFinding(
-            time=raw.get('timestamp', 0.0),
-            finding_info={'title': raw.get('signature'), 'desc': raw.get('description')},
-            src_endpoint={'ip': raw.get('src_ip')}
-        )
-        await self.bus.publish('telemetry.normalized.ocsf.security_finding', model.src_endpoint.get('ip'), model.model_dump())
-
-    async def _normalize_endpoint(self, raw: dict) -> None:
-        model = OCSFProcessActivity(
-            time=raw.get('timestamp', 0.0),
-            device={'hostname': raw.get('hostname'), 'id': raw.get('host_id')},
-            process={'name': raw.get('process_name'), 'pid': raw.get('pid')}
-        )
-        await self.bus.publish('telemetry.normalized.ocsf.process', model.device.get('hostname'), model.model_dump())
+        self.stats['events_normalized'] += 1
+        self.stats['by_topic'][topic] = self.stats['by_topic'].get(topic, 0) + 1
