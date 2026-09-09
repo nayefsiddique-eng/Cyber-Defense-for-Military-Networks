@@ -149,7 +149,12 @@ class TelemetryNormalizer:
             time=raw.get('timestamp', 0.0),
             src_endpoint={'ip': raw.get('src_ip')},
             dst_endpoint={'ip': raw.get('dst_ip')},
-            connection_info={'bytes': raw.get('bytes'), 'packets': raw.get('packets')}
+            connection_info={
+                'bytes_in': raw.get('bytes_in', 0),
+                'bytes_out': raw.get('bytes_out', 0),
+                'packets_in': raw.get('packets_in', 0),
+                'packets_out': raw.get('packets_out', 0),
+            }
         )
         await self.bus.publish('telemetry.normalized.ocsf.network', model.src_endpoint.get('ip'), model.model_dump())
 

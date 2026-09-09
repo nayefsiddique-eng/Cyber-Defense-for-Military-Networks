@@ -17,10 +17,34 @@ data/db/*
 data/telemetry/*
 data/pcaps/*
 data/scenarios/*
+data/datasets/*
+data/models/*
 !data/db/.gitkeep
 !data/telemetry/.gitkeep
 !data/pcaps/.gitkeep
 !data/scenarios/.gitkeep
+!data/datasets/.gitkeep
+!data/models/.gitkeep
+
+data/output/*
+!data/output/.gitkeep
+!data/output/incidents.json
+
+# Test / lint caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
 
 # IDEs
 .idea/
