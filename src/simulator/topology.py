@@ -41,11 +41,15 @@ def add_asset(
     services: List[ServicePort],
     owner: str = "Military Cyber Defense",
 ) -> None:
-    """Create and add a NetworkAsset using the current assets.py schema."""
+    """Create and add a NetworkAsset using the current assets.py schema.
+
+    asset_id is derived from the hostname so rebuilding against an existing DB
+    upserts instead of colliding on the UNIQUE(ip) constraint.
+    """
 
     inventory.add_asset(
         NetworkAsset(
-            asset_id=str(uuid.uuid4()),
+            asset_id=str(uuid.uuid5(uuid.NAMESPACE_DNS, hostname)),
             ip=ip,
             mac_address=mac_address,
             hostname=hostname,

@@ -26,7 +26,9 @@ TOPIC_REGISTRY: Dict[str, TopicDefinition] = {
     'telemetry.normalized.ocsf.dns': TopicDefinition('telemetry.normalized.ocsf.dns', 'src_endpoint.ip', 6, 48, 'zstd'),
     'telemetry.normalized.ocsf.security_finding': TopicDefinition('telemetry.normalized.ocsf.security_finding', 'src_endpoint.ip', 3, 48, 'zstd'),
     'telemetry.normalized.ocsf.process': TopicDefinition('telemetry.normalized.ocsf.process', 'device.hostname', 3, 48, 'zstd'),
+    'telemetry.alerts.detection': TopicDefinition('telemetry.alerts.detection', 'asset_id', 3, 720, 'zstd'),
     'telemetry.alerts.correlation': TopicDefinition('telemetry.alerts.correlation', 'alert_id', 2, 720, 'zstd'),
+    'telemetry.groundtruth.labels': TopicDefinition('telemetry.groundtruth.labels', 'event_id', 3, 720, 'zstd'),
     'telemetry.dlq.parsing_failures': TopicDefinition('telemetry.dlq.parsing_failures', None, 1, 168, 'none'),
     'telemetry.dlq.validation_errors': TopicDefinition('telemetry.dlq.validation_errors', None, 1, 168, 'none'),
 }
@@ -36,9 +38,9 @@ class TopicManager:
     
     @staticmethod
     def init_lightweight_topics(bus) -> None:
-        """Pre-creates all queues in the lightweight bus."""
+        """Registers all known topics on the lightweight bus."""
         for name in TOPIC_REGISTRY.keys():
-            bus.get_or_create_queue(name)
+            bus.register_topic(name)
         logger.info(f"Initialized {len(TOPIC_REGISTRY)} topics in AsyncQueueBus.")
 
     @staticmethod

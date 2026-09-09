@@ -32,79 +32,106 @@ class EventBus(ABC):
 
 
 class AsyncQueueBus(EventBus):
-    """Lightweight in-process implementation using asyncio.Queue."""
-    
+    """In-process pub/sub over asyncio.Queue.
+
+    One queue per (topic, group_id): publish fans out a copy to every group, so
+    consumer groups get independent delivery instead of stealing from a shared
+    queue. Subscribers block on get() rather than polling, so throughput is not
+    capped by a poll interval.
+    """
+
     def __init__(self, max_queue_size: int = 10000) -> None:
-        """Initialize the AsyncQueueBus."""
         self._max_queue_size = max_queue_size
-        self._queues: Dict[str, asyncio.Queue] = {}
+        self._queues: Dict[tuple, asyncio.Queue] = {}
+        self._groups: Dict[str, set] = {}
         self._subscribers: Dict[str, List[asyncio.Task]] = {}
+        self._topics: set = set()
         self._is_running = False
 
-    def get_or_create_queue(self, topic: str) -> asyncio.Queue:
-        """Get an existing queue for a topic or create a new one."""
-        if topic not in self._queues:
-            self._queues[topic] = asyncio.Queue(maxsize=self._max_queue_size)
-        return self._queues[topic]
+    def register_topic(self, topic: str) -> None:
+        self._topics.add(topic)
+
+    def _queue_for(self, topic: str, group_id: str) -> asyncio.Queue:
+        key = (topic, group_id)
+        if key not in self._queues:
+            self._queues[key] = asyncio.Queue(maxsize=self._max_queue_size)
+            self._groups.setdefault(topic, set()).add(group_id)
+            self._topics.add(topic)
+        return self._queues[key]
 
     async def publish(self, topic: str, key: Optional[str], value: dict) -> None:
-        """Put an event tuple onto the topic's queue."""
         if not self._is_running:
             return
-        
-        queue = self.get_or_create_queue(topic)
+
+        groups = self._groups.get(topic)
+        if not groups:
+            return
+
         timestamp = time.time()
-        try:
-            # Non-blocking put, drop event if queue is full
-            queue.put_nowait((key, value, timestamp))
-        except asyncio.QueueFull:
-            logger.warning(f"Queue full for topic {topic}, dropping event.")
+        for group_id in groups:
+            try:
+                self._queues[(topic, group_id)].put_nowait((key, value, timestamp))
+            except asyncio.QueueFull:
+                logger.warning(f"Queue full for {topic}/{group_id}, dropping event.")
 
     async def subscribe(self, topics: List[str], group_id: str, callback: Callable) -> None:
-        """Start asyncio.Task that continuously gets from queue(s) and calls callback."""
-        if group_id not in self._subscribers:
-            self._subscribers[group_id] = []
-            
-        async def subscriber_task(topic_list: List[str], cb: Callable):
-            while self._is_running:
-                for topic in topic_list:
-                    queue = self.get_or_create_queue(topic)
-                    try:
-                        # Non-blocking get to allow cycling through topics
-                        key, value, ts = queue.get_nowait()
-                        try:
-                            if asyncio.iscoroutinefunction(cb):
-                                await cb(topic, key, value)
-                            else:
-                                cb(topic, key, value)
-                        except Exception as e:
-                            logger.error(f"Error processing event from {topic}: {e}")
-                        finally:
-                            queue.task_done()
-                    except asyncio.QueueEmpty:
-                        continue
-                await asyncio.sleep(0.01)  # Prevent CPU spinning
-                
-        task = asyncio.create_task(subscriber_task(topics, callback))
-        self._subscribers[group_id].append(task)
+        self._subscribers.setdefault(group_id, [])
+
+        async def consume(topic: str, queue: asyncio.Queue, cb: Callable):
+            while True:
+                key, value, _ts = await queue.get()
+                try:
+                    if asyncio.iscoroutinefunction(cb):
+                        await cb(topic, key, value)
+                    else:
+                        cb(topic, key, value)
+                except Exception as e:
+                    logger.error(f"Error processing event from {topic}: {e}")
+                finally:
+                    queue.task_done()
+
+        for topic in topics:
+            queue = self._queue_for(topic, group_id)
+            self._subscribers[group_id].append(
+                asyncio.create_task(consume(topic, queue, callback))
+            )
+
+    async def unsubscribe(self, group_id: str) -> None:
+        for task in self._subscribers.pop(group_id, []):
+            task.cancel()
+        for topic, groups in self._groups.items():
+            groups.discard(group_id)
+        for key in [k for k in self._queues if k[1] == group_id]:
+            del self._queues[key]
+
+    async def drain(self, timeout: float = 5.0) -> bool:
+        """Wait until every queue is empty. Returns False on timeout."""
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*(q.join() for q in list(self._queues.values()))),
+                timeout=timeout,
+            )
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     async def start(self) -> None:
-        """Start the AsyncQueueBus."""
         self._is_running = True
         logger.info("AsyncQueueBus started.")
 
     async def stop(self) -> None:
-        """Stop all subscriber tasks."""
         self._is_running = False
-        for group_id, tasks in self._subscribers.items():
+        for tasks in self._subscribers.values():
             for task in tasks:
                 task.cancel()
         self._subscribers.clear()
         logger.info("AsyncQueueBus stopped.")
 
     def get_topic_stats(self) -> Dict[str, int]:
-        """Get queue sizes per topic."""
-        return {topic: queue.qsize() for topic, queue in self._queues.items()}
+        stats: Dict[str, int] = {t: 0 for t in self._topics}
+        for (topic, _group), queue in self._queues.items():
+            stats[topic] = stats.get(topic, 0) + queue.qsize()
+        return stats
 
 
 class KafkaBus(EventBus):

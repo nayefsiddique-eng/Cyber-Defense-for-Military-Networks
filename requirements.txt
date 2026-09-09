@@ -7,15 +7,15 @@ scapy==2.5.0
 aiofiles==24.1.0
 
 # --- Detection engine (src/detection/) ---
-# numpy is pinned <2 for numba/llvmlite compatibility, which SHAP requires.
-numpy==1.26.4
-scikit-learn==1.5.1
-xgboost==2.1.1
-joblib==1.4.2
+# Versions chosen for cp313 wheel availability; also support the 3.11 image.
+numpy==2.2.6
+scikit-learn==1.6.1
+xgboost==2.1.4
+joblib==1.6.0
 
 # --- Dataset assembly + metrics harness (scripts/) ---
-pandas==2.2.2
-pyarrow==17.0.0
+pandas==2.3.3
+pyarrow==18.1.0
 
 # Only required for "full" mode
 confluent-kafka==2.4.0

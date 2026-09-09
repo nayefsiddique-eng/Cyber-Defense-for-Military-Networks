@@ -11,6 +11,7 @@ from src.simulator.engine import CyberRangeSimulator
 from src.pipeline.event_bus import create_event_bus
 from src.pipeline.store import create_store, StorageSink
 from src.pipeline.normalizer import TelemetryNormalizer
+from src.pipeline.topic_manager import TopicManager
 
 
 def start_api(host: str, port: int):
@@ -25,7 +26,12 @@ async def run_pipeline():
     
     event_bus = create_event_bus(mode=config.MODE)
     store = create_store(mode=config.MODE, output_dir=config.TELEMETRY_OUTPUT_DIR)
-    
+
+    if config.MODE == 'full':
+        TopicManager.init_kafka_topics(config.KAFKA_BROKERS)
+    else:
+        TopicManager.init_lightweight_topics(event_bus)
+
     normalizer = TelemetryNormalizer(event_bus)
     sink = StorageSink(event_bus, store, config.BATCH_SIZE, config.FLUSH_INTERVAL_SECONDS)
     
@@ -48,23 +54,41 @@ async def run_pipeline():
 
 
 async def run_simulation(duration: float, seed: int):
-    """Run the standalone simulator."""
+    """Run the simulator with the full normalize + store pipeline attached."""
     print(f"Starting simulation for {duration}s with seed {seed}...")
-    
-    # Use lightweight bus for standalone simulator if not full mode
+
     event_bus = create_event_bus(mode=config.MODE)
+    store = create_store(mode=config.MODE, output_dir=config.TELEMETRY_OUTPUT_DIR)
+
+    if config.MODE == 'full':
+        TopicManager.init_kafka_topics(config.KAFKA_BROKERS)
+    else:
+        TopicManager.init_lightweight_topics(event_bus)
+
+    normalizer = TelemetryNormalizer(event_bus)
+    sink = StorageSink(event_bus, store, config.BATCH_SIZE, config.FLUSH_INTERVAL_SECONDS)
+
     await event_bus.start()
-    
-    simulator = CyberRangeSimulator(config, event_bus)
+    await normalizer.start()
+    await sink.start()
+
+    simulator = CyberRangeSimulator(config, event_bus, seed=seed)
     try:
         await simulator.start(duration_seconds=duration)
-        stats = simulator.get_stats()
-        print(f"Simulation completed: {stats}")
+        if hasattr(event_bus, 'drain') and not await event_bus.drain(timeout=30.0):
+            print("Warning: pipeline did not fully drain before shutdown.")
     except KeyboardInterrupt:
         print("Simulation interrupted.")
         await simulator.stop()
     finally:
+        # Stop the sink before reporting so the final flush is counted.
+        await sink.stop()
+        await normalizer.stop()
         await event_bus.stop()
+
+    print(f"Simulation completed: {simulator.get_stats()}")
+    print(f"Normalizer: {normalizer.stats}")
+    print(f"Storage: {sink.stats}")
 
 
 def main():
