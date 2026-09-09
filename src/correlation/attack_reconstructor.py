@@ -10,6 +10,11 @@ class AttackReconstructor:
     """
 
     THREAT_MAPPING: Dict[str, Dict[str, str]] = {
+        "Reconnaissance": {
+            "stage": "Reconnaissance",
+            "mitre_id": "T1046",
+            "mitre_technique": "Network Service Scanning"
+        },
         "Brute Force": {
             "stage": "Initial Access",
             "mitre_id": "T1110",
@@ -39,6 +44,11 @@ class AttackReconstructor:
             "stage": "Exfiltration",
             "mitre_id": "T1041",
             "mitre_technique": "Exfiltration Over C2 Channel"
+        },
+        "Impact": {
+            "stage": "Impact",
+            "mitre_id": "T1490",
+            "mitre_technique": "Inhibit System Recovery"
         }
     }
 

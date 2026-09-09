@@ -40,13 +40,15 @@ class AsyncQueueBus(EventBus):
     capped by a poll interval.
     """
 
-    def __init__(self, max_queue_size: int = 10000) -> None:
+    def __init__(self, max_queue_size: int = 10000, put_timeout: float = 30.0) -> None:
         self._max_queue_size = max_queue_size
+        self._put_timeout = put_timeout
         self._queues: Dict[tuple, asyncio.Queue] = {}
         self._groups: Dict[str, set] = {}
         self._subscribers: Dict[str, List[asyncio.Task]] = {}
         self._topics: set = set()
         self._is_running = False
+        self.dropped = 0
 
     def register_topic(self, topic: str) -> None:
         self._topics.add(topic)
@@ -68,11 +70,20 @@ class AsyncQueueBus(EventBus):
             return
 
         timestamp = time.time()
-        for group_id in groups:
+        for group_id in list(groups):
+            queue = self._queues[(topic, group_id)]
+            item = (key, value, timestamp)
             try:
-                self._queues[(topic, group_id)].put_nowait((key, value, timestamp))
+                queue.put_nowait(item)
             except asyncio.QueueFull:
-                logger.warning(f"Queue full for {topic}/{group_id}, dropping event.")
+                # Apply backpressure rather than dropping: a fast producer used
+                # to silently lose events once a consumer fell behind.
+                try:
+                    await asyncio.wait_for(queue.put(item), timeout=self._put_timeout)
+                except asyncio.TimeoutError:
+                    self.dropped += 1
+                    logger.warning("Queue %s/%s blocked for %.0fs, dropping event.",
+                                   topic, group_id, self._put_timeout)
 
     async def subscribe(self, topics: List[str], group_id: str, callback: Callable) -> None:
         self._subscribers.setdefault(group_id, [])

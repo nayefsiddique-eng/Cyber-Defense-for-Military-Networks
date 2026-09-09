@@ -88,6 +88,7 @@ class OCSFAuthenticationEvent(OCSFBaseEvent):
     status_id: int = 0
     logon_type: Optional[str] = None
     auth_protocol: Optional[str] = None
+    ticket_encryption: Optional[str] = None
 
 
 class OCSFNetworkEvent(OCSFBaseEvent):

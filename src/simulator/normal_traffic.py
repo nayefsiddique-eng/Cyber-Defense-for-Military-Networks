@@ -59,7 +59,18 @@ class NormalTrafficGenerator:
         # login events at the default 3600s duration.
         for ws in workstations:
             user = self._user_for(ws)
-            push(start_time + duration * self.rng.uniform(0.02, 0.12), 5, "raw.auth",
+            login_at = start_time + duration * self.rng.uniform(0.02, 0.12)
+
+            # Mistyped passwords happen. Without them benign traffic would have
+            # zero failed logons, making any brute-force rule trivially perfect.
+            if self.rng.random() < 0.25:
+                for attempt in range(self.rng.randint(1, 2)):
+                    push(login_at - 30 + attempt * 5, 5, "raw.auth",
+                         src_ip=ws.ip, dst_ip=dc_ip, username=user, user_id=user,
+                         domain=DOMAIN, status="failure", logon_type="2", event_code=4625,
+                         hostname=ws.hostname, host_id=ws.asset_id, action="login_failed")
+
+            push(login_at, 5, "raw.auth",
                  src_ip=ws.ip, dst_ip=dc_ip, username=user, user_id=user, domain=DOMAIN,
                  status="success", logon_type="2", event_code=4624,
                  hostname=ws.hostname, host_id=ws.asset_id, action="login")

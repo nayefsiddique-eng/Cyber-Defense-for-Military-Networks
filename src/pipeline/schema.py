@@ -6,7 +6,7 @@ along in data.raw_vendor so EVTX/Zeek/PAN-OS/Suricata fidelity is preserved.
 
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 RAW_EVENT_TYPES = (
     'raw.auth',
@@ -41,6 +41,7 @@ class RawEventData(BaseModel):
     domain: Optional[str] = None
     logon_type: Optional[str] = None
     status: Optional[str] = None
+    ticket_encryption: Optional[str] = None
 
     hostname: Optional[str] = None
     host_id: Optional[str] = None
@@ -71,6 +72,13 @@ class RawEventData(BaseModel):
     packets_out: int = 0
 
     raw_vendor: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator('logon_type', 'status', 'query_type', 'protocol', 'action',
+                     'integrity_level', 'response_code', mode='before')
+    @classmethod
+    def _as_string(cls, v):
+        # Producers supply these as either str or int (e.g. logon_type 3 vs "3").
+        return None if v is None else str(v)
 
 
 class RawEvent(BaseModel):

@@ -17,13 +17,15 @@ class RiskEngine:
     }
 
     STAGE_SCORES = {
+        "Reconnaissance": 10,
         "Initial Access": 20,
         "Credential Access": 40,
         "Privilege Escalation": 60,
         "Lateral Movement": 75,
         "Command and Control": 85,
         "Collection": 90,
-        "Exfiltration": 100
+        "Exfiltration": 100,
+        "Impact": 100
     }
 
     def calculate(

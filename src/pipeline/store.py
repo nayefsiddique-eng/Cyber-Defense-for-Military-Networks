@@ -219,7 +219,9 @@ class StorageSink:
             'telemetry.normalized.ocsf.dns',
             'telemetry.normalized.ocsf.security_finding',
             'telemetry.normalized.ocsf.process',
-            'telemetry.alerts.correlation'
+            'telemetry.alerts.detection',
+            'telemetry.alerts.correlation',
+            'telemetry.groundtruth.labels',
         ]
         
         self._is_running = True

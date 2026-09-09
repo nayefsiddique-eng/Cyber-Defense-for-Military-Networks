@@ -39,6 +39,9 @@ class Config(BaseSettings):
     DETECTION_WEIGHT_BEHAVIOUR: float = 0.15
     DETECTION_BATCH_SIZE: int = 64
     DETECTION_BATCH_TIMEOUT_MS: int = 250
+    # Suppress repeat alerts for the same entity + threat type; a sustained
+    # exfiltration would otherwise raise thousands of identical alerts.
+    DETECTION_ALERT_COOLDOWN_SECONDS: float = 300.0
     # Bound feature-store memory on long runs
     DETECTION_MAX_ENTITIES: int = 50000
     DETECTION_MIN_BASELINE_OBSERVATIONS: int = 5
