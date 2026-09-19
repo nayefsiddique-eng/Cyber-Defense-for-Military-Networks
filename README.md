@@ -1,6 +1,9 @@
-# 🎖️ Cyber Defense for Military Networks
-
+<h1 align="center">🎖️ Cyber Defense for Military Networks</h1>  
+<p align="center">
 **Digital Twin Cyber Range & OCSF-Normalized Telemetry Generator**
+</p>  
+
+---
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
